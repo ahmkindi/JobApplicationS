@@ -16,3 +16,9 @@ a boolean array keeps track of the key words found, if the array is all true the
 
 
 ## How to run
+Make sure to have Docker installed in your machine, check this with ```docker version```.
+
+* Download the zip or git clone of this repository
+* In the main directory (the one with JobApplicationS.sln) run: ```docker build -t program -f Dockerfile .. ```
+* Now you can run ```docker run -p 8080:80 program``` at any time in your terminal
+* To view the application navigate to ```http://localhost:8080/```
