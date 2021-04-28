@@ -1,0 +1,164 @@
+﻿@page "/"
+@using JobApplication.Data
+@using System.IO;
+@using System.Text;
+@using iText.Kernel.Pdf;
+@using iText.Kernel.Pdf.Canvas.Parser;
+@using iText.Kernel.Pdf.Canvas.Parser.Listener;
+
+<div class="p-2">
+    <h2>Resume Scanner</h2>
+</div>
+<div class="p-2">
+    <label for="cv" class="btn btn-outline-info shadow-none btn-sm pointer">@Resume.UploadText</label>
+    <InputFile id="cv" accept=".pdf" OnChange="OnFileUpload" />
+</div>
+@if (Error)
+{
+    <div class="alert alert-danger" role="alert">
+        Please choose a pdf file of size less than 512kB
+    </div>
+}
+@if (Resume.FileUploaded)
+{
+    <div class="p-2">Insert Key words to scan in "@Resume.FileName"</div>
+    @for (int i = 0; i < Filter.Words.Count; i++)
+    {
+        var ii = i;
+        <div class="p-2">
+            <div class="input-group">
+                <input type="text" @bind-value="Filter.Words[ii]" />
+                <div class="input-group-append">
+                    <button class="btn btn-outline-danger" type="button" @onclick="() => { Filter.Finished = false;  Filter.Words.RemoveAt(ii); }"><span class="oi oi-minus"></span></button>
+                </div>
+            </div>
+        </div>
+    }
+    <div class="p-2">
+        @if (Filter.Words.Count < Max)
+        {
+            <button class="btn btn-outline-info" @onclick="() => { Filter.Finished = false;  Filter.Words.Add(string.Empty); }"><span class="oi oi-plus"></span></button>
+        }
+    </div>
+    @if (Filter.Words.Any())
+    {
+        <div class="p-2">
+            <button class="btn btn-outline-success" @onclick="Scan">Scan</button>
+        </div>
+    }
+}
+@if (Filter.Finished)
+{
+    if (Filter.Found == Filter.Words.Count)
+    {
+        <div class="alert alert-success" role="alert">
+            ACCEPT! All the words have been found in these sentences:
+        </div>
+        @foreach (string s in Filter.Sentences)
+        {
+            <div class="p-1">
+                - @s
+            </div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-warning" role="alert">
+            REJECT! @Filter.Found/@Filter.Words.Count words were found.
+        </div>
+    }
+}
+@if (Working)
+{
+    <div class="p-2">
+        <div class="spinner-border" role="status">
+            <span class="sr-only">Loading...</span>
+        </div>
+    </div>
+}
+
+
+
+@code{
+
+    private static readonly int Max = 5;
+    private static readonly char[] terminators = { '.', '\t', '\u2022', '?', '!', };
+    private static readonly char[] notIncluded = { '\n', '\t', '\u2022', '\0' };
+    public bool Working { get; set; } = false;
+    public bool Error { get; set; } = false;
+    public Resume Resume { get; set; } = new Resume();
+    public Filter Filter { get; set; } = new Filter();
+
+    async Task OnFileUpload(InputFileChangeEventArgs e)
+    {
+        Resume = new Resume();
+        Filter = new Filter();
+        if (e.File.ContentType != "application/pdf" || e.File.Size > 512000)
+        {
+            Error = true;
+        }
+        else
+        {
+            Working = true;
+            Error = false;
+            Resume.FileName = e.File.Name;
+            Resume.FileUploaded = true;
+            Resume.UploadText = "Upload Different Resume";
+            byte[] temp;
+            using (var ms = new MemoryStream())
+            {
+                await e.File.OpenReadStream().CopyToAsync(ms);
+                temp = ms.ToArray();
+            }
+            using (var ms = new MemoryStream(temp))
+            using (var reader = new PdfReader(ms))
+            using (var pdf = new PdfDocument(reader))
+            {
+                var pageNumbers = pdf.GetNumberOfPages();
+                for (int i = 1; i <= pageNumbers; i++)
+                {
+                    LocationTextExtractionStrategy strategy = new LocationTextExtractionStrategy();
+                    PdfCanvasProcessor parser = new PdfCanvasProcessor(strategy);
+                    parser.ProcessPageContent(pdf.GetFirstPage());
+                    StringBuilder sentence = new StringBuilder();
+                    foreach (char c in strategy.GetResultantText().ToLower())
+                    {
+                        if (!notIncluded.Contains(c)) sentence.Append(c);
+                        if (terminators.Contains(c))
+                        {
+                            Resume.Sentences.Add(sentence.ToString().Split(" "));
+                            sentence = new StringBuilder();
+                        }
+                    }
+                }
+            }
+            Working = false;
+        }
+    }
+
+    void Scan()
+    {
+        Working = true;
+        bool[] found = new bool[Filter.Words.Count];
+        Filter.Found = 0; // reset the number of words that were found.
+        Filter.Sentences.Clear();
+
+
+        foreach (string[] s in Resume.Sentences)
+        {
+            for (int i = 0; i < Filter.Words.Count; i++)
+            {
+                if (s.Contains(Filter.Words[i].ToLower()))
+                {
+                    found[i] = true;
+                    var temp = string.Join(" ", s);
+                    if (!Filter.Sentences.Contains(temp)) Filter.Sentences.Add(temp);
+                }
+            }
+        }
+
+        Working = false;
+        Filter.Finished = true;
+        Filter.Found = found.Count(b => b);
+    }
+}
